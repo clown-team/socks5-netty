@@ -82,7 +82,7 @@ public class ProxyServer {
         }
 
         final EventLoopGroup boss = new NioEventLoopGroup(CommonUtils.getEnv("bossThread", Integer::parseInt, 2));
-        final EventLoopGroup worker = new NioEventLoopGroup(CommonUtils.getEnv("bossThread", Integer::parseInt, 0));
+        final EventLoopGroup worker = new NioEventLoopGroup(CommonUtils.getEnv("workerThread", Integer::parseInt, 0));
 
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
