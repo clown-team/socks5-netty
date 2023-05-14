@@ -1,13 +1,12 @@
 package com.geccocrawler.socks5;
 
 import com.geccocrawler.socks5.auth.PasswordAuth;
-import com.geccocrawler.socks5.auth.PropertiesPasswordAuth;
+import com.geccocrawler.socks5.auth.impl.EnvPasswordAuth;
 import com.geccocrawler.socks5.handler.ChannelListener;
 import com.geccocrawler.socks5.handler.ss5.Socks5CommandRequestHandler;
 import com.geccocrawler.socks5.handler.ss5.Socks5InitialRequestHandler;
 import com.geccocrawler.socks5.handler.ss5.Socks5PasswordAuthRequestHandler;
-import com.geccocrawler.socks5.log.ProxyFlowLog;
-import com.geccocrawler.socks5.log.ProxyFlowLog4j;
+import com.geccocrawler.utils.CommonUtils;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -20,28 +19,23 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5InitialRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5ServerEncoder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 
-import java.util.Properties;
-
+/**
+ * 认证服务器
+ *
+ * @author smilex
+ */
+@Slf4j
+@Data
 public class ProxyServer {
 
-    private EventLoopGroup bossGroup = new NioEventLoopGroup();
+    private final EventLoopGroup bossGroup = new NioEventLoopGroup();
 
-    public EventLoopGroup getBossGroup() {
-        return bossGroup;
-    }
-
-    private static final Logger logger = LoggerFactory.getLogger(ProxyServer.class);
-
-    private int port;
+    private final int port;
 
     private boolean auth;
-
-    private boolean logging;
-
-    private ProxyFlowLog proxyFlowLog;
 
     private ChannelListener channelListener;
 
@@ -60,16 +54,6 @@ public class ProxyServer {
         return this;
     }
 
-    public ProxyServer logging(boolean logging) {
-        this.logging = logging;
-        return this;
-    }
-
-    public ProxyServer proxyFlowLog(ProxyFlowLog proxyFlowLog) {
-        this.proxyFlowLog = proxyFlowLog;
-        return this;
-    }
-
     public ProxyServer channelListener(ChannelListener channelListener) {
         this.channelListener = channelListener;
         return this;
@@ -78,10 +62,6 @@ public class ProxyServer {
     public ProxyServer passwordAuth(PasswordAuth passwordAuth) {
         this.passwordAuth = passwordAuth;
         return this;
-    }
-
-    public ProxyFlowLog getProxyFlowLog() {
-        return proxyFlowLog;
     }
 
     public ChannelListener getChannelListener() {
@@ -96,29 +76,24 @@ public class ProxyServer {
         return auth;
     }
 
-    public boolean isLogging() {
-        return logging;
-    }
-
     public void start() throws Exception {
-        if (proxyFlowLog == null) {
-            proxyFlowLog = new ProxyFlowLog4j();
-        }
         if (passwordAuth == null) {
-            passwordAuth = new PropertiesPasswordAuth();
+            passwordAuth = EnvPasswordAuth.getInstance();
         }
-        EventLoopGroup boss = new NioEventLoopGroup(2);
-        EventLoopGroup worker = new NioEventLoopGroup();
+
+        final EventLoopGroup boss = new NioEventLoopGroup(CommonUtils.getEnv("bossThread", Integer::parseInt, 2));
+        final EventLoopGroup worker = new NioEventLoopGroup(CommonUtils.getEnv("bossThread", Integer::parseInt, 0));
+
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(boss, worker)
                     .channel(NioServerSocketChannel.class)
-                    .option(ChannelOption.SO_BACKLOG, 1024)
-                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 1000)
+                    .option(ChannelOption.SO_BACKLOG, CommonUtils.getEnv("backlog", Integer::parseInt, 1024))
+                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CommonUtils.getEnv("connectTimeoutMillis", Integer::parseInt, 1000))
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) throws Exception {
-                            //Socks5MessagByteBuf
+                            //Socks5 Message ByteBuf
                             ch.pipeline().addLast(Socks5ServerEncoder.DEFAULT);
                             //sock5 init
                             ch.pipeline().addLast(new Socks5InitialRequestDecoder());
@@ -138,7 +113,7 @@ public class ProxyServer {
                     });
 
             ChannelFuture future = bootstrap.bind(port).sync();
-            logger.debug("bind port : " + port);
+            log.info("bind port : " + port);
             future.channel().closeFuture().sync();
         } finally {
             boss.shutdownGracefully();
@@ -147,16 +122,11 @@ public class ProxyServer {
     }
 
     public static void main(String[] args) throws Exception {
-        int port = 11080;
-        boolean auth = false;
-        Properties properties = new Properties();
-        try {
-            properties.load(ProxyServer.class.getResourceAsStream("/config.properties"));
-            port = Integer.parseInt(properties.getProperty("port"));
-            auth = Boolean.parseBoolean(properties.getProperty("auth"));
-        } catch (Exception e) {
-            logger.warn("load config.properties error, default port 11080, auth false!");
-        }
-        ProxyServer.create(port).logging(true).auth(auth).start();
+        final Integer port = CommonUtils.getEnv("port", Integer::parseInt, 11080);
+        final Boolean auth = CommonUtils.getEnv("auth", Boolean::valueOf, Boolean.FALSE);
+
+        ProxyServer.create(port)
+                .auth(auth)
+                .start();
     }
 }
